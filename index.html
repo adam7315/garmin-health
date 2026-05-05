@@ -974,13 +974,16 @@ setView('month');
 // ── 立即更新 ─────────────────────────────────────────────
 (function(){
   const REPO='adam7315/garmin-health', WF='update.yml', KEY='gat';
-  function getToken(){
-    let t=localStorage.getItem(KEY);
-    if(!t){
-      t=prompt('首次使用：請輸入 GitHub Personal Access Token\n（Settings → Developer settings → Fine-grained tokens，需要 Actions: Write 權限）');
-      if(t) localStorage.setItem(KEY,t.trim());
+  // 支援 #setup=TOKEN 一鍵初始化
+  (function(){
+    const h=location.hash;
+    if(h.startsWith('#setup=')){
+      const t=h.slice(7);
+      if(t){ localStorage.setItem(KEY,t); location.hash=''; }
     }
-    return t?t.trim():null;
+  })();
+  function getToken(){
+    return localStorage.getItem(KEY)||null;
   }
   window.triggerUpdate=async function(){
     const btn=document.getElementById('upd-btn');
