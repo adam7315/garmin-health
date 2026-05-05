@@ -988,7 +988,13 @@ setView('month');
   window.triggerUpdate=async function(){
     const btn=document.getElementById('upd-btn');
     const sts=document.getElementById('upd-sts');
-    const tok=getToken(); if(!tok) return;
+    let tok=getToken();
+    if(!tok){
+      tok=window.prompt('請輸入 GitHub Personal Access Token（需有 Actions: write 權限）：');
+      if(!tok||!tok.trim()){sts.textContent='未輸入 Token，已取消';return;}
+      tok=tok.trim();
+      localStorage.setItem(KEY,tok);
+    }
     btn.disabled=true; btn.textContent='送出中...'; sts.textContent='';
     try{
       const r=await fetch(
