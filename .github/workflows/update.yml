@@ -1,0 +1,14 @@
+name: Update Garmin Dashboard
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'   # UTC 00:00 = Taiwan 08:00
+
+jobs:
+  update:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Run Garmin update script
+        run: powershell.exe -NonInteractive -ExecutionPolicy Bypass -File "D:\Claude Code\Adam\garmin_update.ps1"
