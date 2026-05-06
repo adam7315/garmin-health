@@ -7,8 +7,67 @@ on:
 
 jobs:
   update:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
+
     steps:
-      - name: Run Garmin update script
-        run: powershell.exe -NonInteractive -ExecutionPolicy Bypass -File "D:\Claude Code\Adam\garmin_update.ps1"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore token (cache)
+        id: token-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/garmin_tokens
+          key: garmin-token-${{ github.run_id }}
+          restore-keys: |
+            garmin-token-
+
+      - name: Bootstrap token from secret (first run only)
+        if: steps.token-cache.outputs.cache-hit != 'true'
+        env:
+          GARMIN_TOKEN: ${{ secrets.GARMIN_TOKEN }}
+        run: |
+          mkdir -p /tmp/garmin_tokens
+          if [ -n "$GARMIN_TOKEN" ]; then
+            echo "$GARMIN_TOKEN" | base64 -d | tar -xz -C /tmp/garmin_tokens 2>/dev/null || true
+            echo "Token bootstrapped from secret"
+          else
+            echo "No bootstrap token, will attempt fresh login"
+          fi
+
+      - name: Fetch Garmin data
+        env:
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GARMIN_TOKEN_DIR: /tmp/garmin_tokens
+          GARMIN_CACHE_FILE: /tmp/garmin_cache.json
+        run: python garmin_fetch.py
+
+      - name: Save token to cache
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/garmin_tokens
+          key: garmin-token-${{ github.run_id }}
+
+      - name: Generate dashboard
+        env:
+          GARMIN_CACHE_FILE: /tmp/garmin_cache.json
+          GARMIN_OUTPUT: index.html
+        run: python garmin_viz.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --staged --quiet || git commit -m "Auto update $(date +'%Y-%m-%d %H:%M')"
+          git push
