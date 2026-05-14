@@ -29,7 +29,7 @@ def fetch_data():
             print(f"Token 已過期：{e}")
 
     if not token_ok:
-        prompt_mfa_fn = (lambda: mfa_code) if mfa_code else None
+        prompt_mfa_fn = (lambda: mfa_code) if mfa_code else (lambda: input("請輸入 Garmin MFA 驗證碼: "))
         client = Garmin(EMAIL, PASSWORD, prompt_mfa=prompt_mfa_fn)
         client.login()
         client.client.dump(TOKEN_FILE)
@@ -47,6 +47,8 @@ def fetch_data():
 
     print(f"Fetching steps from {start} to {today}...")
     steps_data = []
+    intraday_data = {}
+    intraday_cutoff = today - timedelta(days=6)
     current = start
     while current <= today:
         date_str = current.strftime("%Y-%m-%d")
@@ -54,6 +56,8 @@ def fetch_data():
             daily = client.get_steps_data(date_str)
             total = sum(s.get("steps", 0) for s in daily) if isinstance(daily, list) else 0
             steps_data.append({"calendarDate": date_str, "totalSteps": total})
+            if current >= intraday_cutoff and isinstance(daily, list) and daily:
+                intraday_data[date_str] = daily
         except Exception:
             steps_data.append({"calendarDate": date_str, "totalSteps": None})
         current += timedelta(days=1)
@@ -104,6 +108,7 @@ def fetch_data():
         "steps": steps_data,
         "sleep": sleep_data,
         "hr_cal": hr_cal_data,
+        "steps_intraday": intraday_data,
     }
 
     with open(CACHE_FILE, "w", encoding="utf-8") as f:

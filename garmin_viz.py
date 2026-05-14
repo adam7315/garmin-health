@@ -93,10 +93,27 @@ if os.path.exists(CACHE_FILE):
             "total_cal":  v.get("totalKilocalories"),
         }
 
+    # 每小時步數聚合（近 7 天的 15 分鐘原始資料 → 24 個小時桶，Taiwan GMT+8）
+    steps_hourly_new = {}
+    for date_str, intervals in cache.get("steps_intraday", {}).items():
+        hourly = [0] * 24
+        for iv in intervals:
+            gmt = iv.get("startGMT", "")
+            s = int(iv.get("steps", 0) or 0)
+            if gmt and s > 0:
+                try:
+                    h_local = (int(gmt[11:13]) + 8) % 24
+                    hourly[h_local] += s
+                except Exception:
+                    pass
+        if any(v > 0 for v in hourly):
+            steps_hourly_new[date_str] = hourly
+
 # ── 合併（新快取優先）─────────────────────────────────────
-steps_all = {**steps_old, **steps_new}
-sleep_all = {**sleep_old, **sleep_new}
-hr_all    = {**hr_old,    **hr_new}
+steps_all    = {**steps_old, **steps_new}
+sleep_all    = {**sleep_old, **sleep_new}
+hr_all       = {**hr_old,    **hr_new}
+steps_hourly = steps_hourly_new if 'steps_hourly_new' in dir() else {}
 
 all_dates = sorted(set(list(steps_all.keys()) + list(sleep_all.keys())))
 
@@ -124,7 +141,8 @@ for d in all_dates:
 print(f"合併後資料：{len(daily)} 筆  ({all_dates[0]} ~ {all_dates[-1]})")
 
 # ── 輸出 HTML ─────────────────────────────────────────────
-DAILY_JSON = json.dumps(daily, ensure_ascii=False, separators=(",", ":"))
+DAILY_JSON  = json.dumps(daily,         ensure_ascii=False, separators=(",", ":"))
+HOURLY_JSON = json.dumps(steps_hourly,  ensure_ascii=False, separators=(",", ":"))
 
 HTML = r"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -294,6 +312,12 @@ h1{text-align:center;padding:28px 0 4px;font-size:22px;font-weight:700;letter-sp
       <div class="sleep-bars" id="dv-sleep-bars"></div>
     </div>
   </div>
+  <!-- 每小時步數分布 -->
+  <div class="day-card" id="hourly-card" style="margin-top:20px">
+    <div style="font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#30d158;margin-bottom:12px">步數時段分布</div>
+    <div style="position:relative;height:160px"><canvas id="hourlyChart"></canvas></div>
+    <div id="hourly-nodata" style="display:none;color:#555;font-size:13px;padding:20px 0;text-align:center">此日無詳細時段資料（僅保留近 7 天）</div>
+  </div>
 </div>
 
 <!-- 圖表 view -->
@@ -337,6 +361,7 @@ h1{text-align:center;padding:28px 0 4px;font-size:22px;font-weight:700;letter-sp
 
 <script>
 const DAILY = """ + DAILY_JSON + r""";
+const STEPS_HOURLY = """ + HOURLY_JSON + r""";
 
 // 建立日期索引
 const byDate = {};
@@ -351,7 +376,7 @@ document.getElementById('date-range').textContent =
 
 let currentView = 'month';
 let anchor = new Date(lastDate);
-let stepsChart = null, sleepChart = null;
+let stepsChart = null, sleepChart = null, hourlyChart = null;
 let rangeStart = null, rangeEnd = null, activePreset = 6;
 
 // ── 日期工具 ─────────────────────────────────────────────
@@ -544,6 +569,83 @@ function renderDay() {
       </div>
       <div class="sleep-bar-val">${b.val ? fmtH(b.val) : '—'}</div>
     </div>`).join('');
+
+  renderHourlySteps(d);
+}
+
+// ── 每小時步數圖 ──────────────────────────────────────────
+function renderHourlySteps(dateStr) {
+  const canvas  = document.getElementById('hourlyChart');
+  const nodata  = document.getElementById('hourly-nodata');
+  const hourly  = STEPS_HOURLY[dateStr];
+
+  if (hourlyChart) { hourlyChart.destroy(); hourlyChart = null; }
+
+  if (!hourly) {
+    canvas.style.display = 'none';
+    nodata.style.display = 'block';
+    return;
+  }
+  canvas.style.display = 'block';
+  nodata.style.display = 'none';
+
+  const labels = Array.from({length:24}, (_,i) => i);
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 160);
+  gradient.addColorStop(0, '#30d15866');
+  gradient.addColorStop(1, '#30d15800');
+
+  hourlyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: hourly,
+        backgroundColor: hourly.map(v => v > 0 ? '#30d158cc' : '#2c2c2e'),
+        borderColor:     hourly.map(v => v > 0 ? '#30d158'   : '#3c3c3e'),
+        borderWidth: 1,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c1c1e',
+          borderColor: '#3c3c3e',
+          borderWidth: 1,
+          titleColor: '#ccc',
+          bodyColor: '#fff',
+          callbacks: {
+            title: items => `${items[0].label}:00 — ${items[0].label}:59`,
+            label: c => '步數：' + (c.raw > 0 ? c.raw.toLocaleString() + ' 步' : '—')
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: '#1a1a1a' },
+          ticks: {
+            color: '#555',
+            font: { size: 10 },
+            callback: (_, i) => i % 3 === 0 ? i : ''
+          }
+        },
+        y: {
+          grid: { color: '#222' },
+          min: 0,
+          ticks: {
+            color: '#555',
+            font: { size: 10 },
+            maxTicksLimit: 4,
+            callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v
+          }
+        }
+      }
+    }
+  });
 }
 
 // ── 圖表視圖 ──────────────────────────────────────────────
