@@ -47,17 +47,30 @@ def fetch_data():
 
     print(f"Fetching steps from {start} to {today}...")
     steps_data = []
-    intraday_data = {}
-    intraday_cutoff = today - timedelta(days=6)
+    steps_hourly = {}   # {date: [24 ints]} 每小時步數，直接在此聚合
     current = start
     while current <= today:
         date_str = current.strftime("%Y-%m-%d")
         try:
             daily = client.get_steps_data(date_str)
-            total = sum(s.get("steps", 0) for s in daily) if isinstance(daily, list) else 0
-            steps_data.append({"calendarDate": date_str, "totalSteps": total})
-            if current >= intraday_cutoff and isinstance(daily, list) and daily:
-                intraday_data[date_str] = daily
+            if isinstance(daily, list):
+                total = sum(s.get("steps", 0) for s in daily)
+                steps_data.append({"calendarDate": date_str, "totalSteps": total})
+                # 聚合成 24 小時桶（Garmin startGMT 為 UTC，+8 轉台灣時間）
+                hourly = [0] * 24
+                for iv in daily:
+                    gmt = iv.get("startGMT", "")
+                    s = int(iv.get("steps", 0) or 0)
+                    if gmt and s > 0:
+                        try:
+                            h_local = (int(gmt[11:13]) + 8) % 24
+                            hourly[h_local] += s
+                        except Exception:
+                            pass
+                if any(v > 0 for v in hourly):
+                    steps_hourly[date_str] = hourly
+            else:
+                steps_data.append({"calendarDate": date_str, "totalSteps": 0})
         except Exception:
             steps_data.append({"calendarDate": date_str, "totalSteps": None})
         current += timedelta(days=1)
@@ -108,7 +121,7 @@ def fetch_data():
         "steps": steps_data,
         "sleep": sleep_data,
         "hr_cal": hr_cal_data,
-        "steps_intraday": intraday_data,
+        "steps_hourly": steps_hourly,
     }
 
     with open(CACHE_FILE, "w", encoding="utf-8") as f:

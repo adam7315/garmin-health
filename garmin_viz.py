@@ -93,21 +93,8 @@ if os.path.exists(CACHE_FILE):
             "total_cal":  v.get("totalKilocalories"),
         }
 
-    # 每小時步數聚合（近 7 天的 15 分鐘原始資料 → 24 個小時桶，Taiwan GMT+8）
-    steps_hourly_new = {}
-    for date_str, intervals in cache.get("steps_intraday", {}).items():
-        hourly = [0] * 24
-        for iv in intervals:
-            gmt = iv.get("startGMT", "")
-            s = int(iv.get("steps", 0) or 0)
-            if gmt and s > 0:
-                try:
-                    h_local = (int(gmt[11:13]) + 8) % 24
-                    hourly[h_local] += s
-                except Exception:
-                    pass
-        if any(v > 0 for v in hourly):
-            steps_hourly_new[date_str] = hourly
+    # 每小時步數（已由 garmin_fetch.py 聚合，直接讀取）
+    steps_hourly_new = cache.get("steps_hourly", {})
 
 # ── 合併（新快取優先）─────────────────────────────────────
 steps_all    = {**steps_old, **steps_new}
