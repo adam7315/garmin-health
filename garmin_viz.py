@@ -11,7 +11,9 @@ from collections import defaultdict
 OLD_BASE    = os.environ.get("GARMIN_OLD_BASE", "")
 OLD_SLEEP   = os.path.join(OLD_BASE, "DI-Connect-Wellness")  if OLD_BASE else ""
 OLD_STEPS   = os.path.join(OLD_BASE, "DI-Connect-Aggregator") if OLD_BASE else ""
-CACHE_FILE  = os.environ.get("GARMIN_CACHE_FILE", r"C:\Users\USER\Desktop\garmin_cache.json")
+# 優先讀 GARMIN_DATA_FILE（新版），回退到 GARMIN_CACHE_FILE（舊版）
+CACHE_FILE  = os.environ.get("GARMIN_DATA_FILE",
+              os.environ.get("GARMIN_CACHE_FILE", r"C:\Users\USER\Desktop\garmin_data.json"))
 OUTPUT      = os.environ.get("GARMIN_OUTPUT",     r"C:\Users\USER\Desktop\garmin_dashboard.html")
 
 # ── 舊匯出檔 ──────────────────────────────────────────────

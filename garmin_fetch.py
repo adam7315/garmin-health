@@ -1,6 +1,7 @@
 """
-Fetch latest Garmin Connect data and save to local cache.
-Usage: python garmin_fetch.py [MFA_CODE]
+Fetch Garmin Connect data and merge into garmin_data.json.
+Normal run: fetches last FETCH_DAYS days (default 60) and merges with existing.
+Backfill:   set FETCH_DAYS=1825 (or more) to pull full history.
 """
 import json
 import os
@@ -11,44 +12,60 @@ from garminconnect import Garmin
 
 EMAIL      = os.environ.get("GARMIN_EMAIL",      "adam7315@gmail.com")
 PASSWORD   = os.environ.get("GARMIN_PASSWORD",   "Adam7315123")
-CACHE_FILE = os.environ.get("GARMIN_CACHE_FILE", r"C:\Users\USER\Desktop\garmin_cache.json")
 TOKEN_FILE = os.environ.get("GARMIN_TOKEN_DIR",  r"C:\Users\USER\Desktop\garmin_tokens")
+DATA_FILE  = os.environ.get("GARMIN_DATA_FILE",  r"C:\Users\USER\Desktop\garmin_data.json")
+FETCH_DAYS = int(os.environ.get("FETCH_DAYS", "60"))
 
-def fetch_data():
+def load_existing():
+    """Load existing data as dicts keyed by date."""
+    steps, sleep, hr_cal, hourly = {}, {}, {}, {}
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, encoding="utf-8") as f:
+            old = json.load(f)
+        for r in old.get("steps", []):
+            d = r.get("calendarDate")
+            if d:
+                steps[d] = r
+        for r in old.get("sleep", []):
+            d = r.get("calendarDate")
+            if d:
+                sleep[d] = r
+        hr_cal  = old.get("hr_cal", {})
+        hourly  = old.get("steps_hourly", {})
+        print(f"Loaded existing: {len(steps)} step days, {len(sleep)} sleep days")
+    return steps, sleep, hr_cal, hourly
+
+def login():
     mfa_code = sys.argv[1] if len(sys.argv) > 1 else None
-
-    print("Connecting to Garmin Connect...")
-
     token_ok = False
     if os.path.exists(TOKEN_FILE):
         try:
             client = Garmin(EMAIL, PASSWORD)
             client.login(tokenstore=TOKEN_FILE)
-            print("Token 登入成功！")
+            print("Token 登入成功")
             token_ok = True
         except Exception as e:
-            print(f"Token 已過期：{e}")
-
+            print(f"Token 過期：{e}")
     if not token_ok:
-        prompt_mfa_fn = (lambda: mfa_code) if mfa_code else (lambda: input("請輸入 Garmin MFA 驗證碼: "))
-        client = Garmin(EMAIL, PASSWORD, prompt_mfa=prompt_mfa_fn)
+        fn = (lambda: mfa_code) if mfa_code else (lambda: input("Garmin MFA: "))
+        client = Garmin(EMAIL, PASSWORD, prompt_mfa=fn)
         client.login()
         client.client.dump(TOKEN_FILE)
-        print(f"Token 已存至 {TOKEN_FILE}。")
-
     try:
         client.client.dump(TOKEN_FILE)
     except Exception:
         pass
+    return client
 
-    print("登入成功！")
+def fetch_data():
+    steps_db, sleep_db, hr_cal_db, hourly_db = load_existing()
+    client = login()
 
     today = date.today()
-    start = today - timedelta(days=365)
+    start = today - timedelta(days=FETCH_DAYS)
+    print(f"Fetching {start} → {today} ({FETCH_DAYS} days)...")
 
-    print(f"Fetching steps from {start} to {today}...")
-    steps_data = []
-    steps_hourly = {}   # {date: [24 ints]} 每小時步數，直接在此聚合
+    # ── Steps ────────────────────────────────────────────────
     current = start
     while current <= today:
         date_str = current.strftime("%Y-%m-%d")
@@ -56,8 +73,7 @@ def fetch_data():
             daily = client.get_steps_data(date_str)
             if isinstance(daily, list):
                 total = sum(s.get("steps", 0) for s in daily)
-                steps_data.append({"calendarDate": date_str, "totalSteps": total})
-                # 聚合成 24 小時桶（Garmin startGMT 為 UTC，+8 轉台灣時間）
+                steps_db[date_str] = {"calendarDate": date_str, "totalSteps": total}
                 hourly = [0] * 24
                 for iv in daily:
                     gmt = iv.get("startGMT", "")
@@ -69,15 +85,17 @@ def fetch_data():
                         except Exception:
                             pass
                 if any(v > 0 for v in hourly):
-                    steps_hourly[date_str] = hourly
+                    hourly_db[date_str] = hourly
             else:
-                steps_data.append({"calendarDate": date_str, "totalSteps": 0})
-        except Exception:
-            steps_data.append({"calendarDate": date_str, "totalSteps": None})
+                if date_str not in steps_db:
+                    steps_db[date_str] = {"calendarDate": date_str, "totalSteps": 0}
+        except Exception as e:
+            print(f"  steps {date_str}: {e}")
+            if date_str not in steps_db:
+                steps_db[date_str] = {"calendarDate": date_str, "totalSteps": None}
         current += timedelta(days=1)
 
-    print(f"Fetching sleep from {start} to {today}...")
-    sleep_data = []
+    # ── Sleep ────────────────────────────────────────────────
     current = start
     while current <= today:
         date_str = current.strftime("%Y-%m-%d")
@@ -85,50 +103,53 @@ def fetch_data():
             s = client.get_sleep_data(date_str)
             if s and "dailySleepDTO" in s:
                 dto = s["dailySleepDTO"]
-                sleep_data.append({
+                sleep_db[date_str] = {
                     "calendarDate": date_str,
-                    "overallScore": dto.get("sleepScores", {}).get("overall", {}).get("value") if isinstance(dto.get("sleepScores"), dict) else None,
-                    "deepSleepSeconds": dto.get("deepSleepSeconds"),
+                    "overallScore": dto.get("sleepScores", {}).get("overall", {}).get("value")
+                                    if isinstance(dto.get("sleepScores"), dict) else None,
+                    "deepSleepSeconds":  dto.get("deepSleepSeconds"),
                     "lightSleepSeconds": dto.get("lightSleepSeconds"),
-                    "remSleepSeconds": dto.get("remSleepSeconds"),
+                    "remSleepSeconds":   dto.get("remSleepSeconds"),
                     "awakeSleepSeconds": dto.get("awakeSleepSeconds"),
                     "sleepStartTimestampGMT": dto.get("sleepStartTimestampGMT"),
-                    "sleepEndTimestampGMT": dto.get("sleepEndTimestampGMT"),
-                })
+                    "sleepEndTimestampGMT":   dto.get("sleepEndTimestampGMT"),
+                }
             else:
-                sleep_data.append({"calendarDate": date_str})
-        except Exception:
-            sleep_data.append({"calendarDate": date_str})
+                if date_str not in sleep_db:
+                    sleep_db[date_str] = {"calendarDate": date_str}
+        except Exception as e:
+            print(f"  sleep {date_str}: {e}")
+            if date_str not in sleep_db:
+                sleep_db[date_str] = {"calendarDate": date_str}
         current += timedelta(days=1)
 
-    print("Fetching user summary (HR, calories) for recent 30 days...")
-    hr_cal_data = {}
+    # ── HR / Calories (recent 30 days only) ──────────────────
     current = today - timedelta(days=30)
     while current <= today:
         date_str = current.strftime("%Y-%m-%d")
         try:
             summary = client.get_user_summary(date_str)
-            hr_cal_data[date_str] = {
-                "restingHeartRate": summary.get("restingHeartRate"),
-                "activeKilocalories": summary.get("activeKilocalories"),
-                "totalKilocalories": summary.get("totalKilocalories"),
+            hr_cal_db[date_str] = {
+                "restingHeartRate":    summary.get("restingHeartRate"),
+                "activeKilocalories":  summary.get("activeKilocalories"),
+                "totalKilocalories":   summary.get("totalKilocalories"),
             }
         except Exception:
             pass
         current += timedelta(days=1)
 
+    # ── Save ─────────────────────────────────────────────────
     cache = {
         "fetched_at": datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M"),
-        "steps": steps_data,
-        "sleep": sleep_data,
-        "hr_cal": hr_cal_data,
-        "steps_hourly": steps_hourly,
+        "steps":        sorted(steps_db.values(), key=lambda r: r["calendarDate"]),
+        "sleep":        sorted(sleep_db.values(), key=lambda r: r["calendarDate"]),
+        "hr_cal":       hr_cal_db,
+        "steps_hourly": hourly_db,
     }
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, separators=(",", ":"))
 
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
-
-    print(f"Saved {len(steps_data)} step records and {len(sleep_data)} sleep records to {CACHE_FILE}")
+    print(f"Saved: {len(steps_db)} step days, {len(sleep_db)} sleep days → {DATA_FILE}")
 
 if __name__ == "__main__":
     fetch_data()
