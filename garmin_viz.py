@@ -159,6 +159,25 @@ h1{text-align:center;padding:28px 0 4px;font-size:22px;font-weight:700;letter-sp
 #period-label:hover{border-color:#888}
 #period-input{display:none;background:#2c2c2e;border:1.5px solid #5e8ef7;border-radius:10px;color:#fff;font-size:15px;font-weight:600;text-align:center;padding:5px 14px;width:230px;outline:none}
 .period-hint{font-size:10px;color:#555;text-align:center;margin-top:4px;min-height:14px}
+/* calendar popup */
+#period-wrap{position:relative}
+#cal-popup{display:none;position:absolute;left:50%;transform:translateX(-50%);top:calc(100% + 8px);background:#1c1c1e;border:1px solid #3a3a3c;border-radius:16px;padding:16px 14px;z-index:200;width:266px;box-shadow:0 12px 40px rgba(0,0,0,.7)}
+#cal-popup.show{display:block}
+.cal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.cal-hdr span{font-size:14px;font-weight:600;color:#fff}
+.cal-nav{background:none;border:none;color:#666;font-size:18px;cursor:pointer;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.cal-nav:hover{color:#fff;background:#2c2c2e}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-wd{text-align:center;font-size:10px;color:#555;padding:3px 0 6px}
+.cal-wd:first-child{color:#e05c5c}
+.cal-wd:last-child{color:#5b8fff}
+.cal-d{text-align:center;padding:5px 0 2px;border-radius:8px;font-size:13px;cursor:pointer;color:#666;min-height:30px}
+.cal-d.has{color:#ccc}.cal-d.has:hover{background:#2c2c2e}
+.cal-d.sel{background:#30d158!important;color:#000;font-weight:700}
+.cal-d.today{outline:1px solid #444}
+.cal-d.empty{cursor:default}
+.cal-dot{width:4px;height:4px;border-radius:50%;background:#30d158;margin:2px auto 0}
+.cal-d.sel .cal-dot{background:#000}
 /* cards */
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1100px;margin:0 auto 40px;padding:0 20px}
 .card{background:#1c1c1e;border-radius:18px;padding:22px;cursor:default}
@@ -254,6 +273,19 @@ h1{text-align:center;padding:28px 0 4px;font-size:22px;font-weight:700;letter-sp
       onkeydown="handlePeriodKey(event)"
       onblur="endEditPeriod(false)" />
     <div class="period-hint" id="period-hint"></div>
+    <div id="cal-popup">
+      <div class="cal-hdr">
+        <button class="cal-nav" onclick="calNav(-1);event.stopPropagation()">&#8249;</button>
+        <span id="cal-title"></span>
+        <button class="cal-nav" onclick="calNav(1);event.stopPropagation()">&#8250;</button>
+      </div>
+      <div class="cal-grid">
+        <div class="cal-wd">日</div><div class="cal-wd">一</div><div class="cal-wd">二</div>
+        <div class="cal-wd">三</div><div class="cal-wd">四</div><div class="cal-wd">五</div>
+        <div class="cal-wd">六</div>
+      </div>
+      <div class="cal-grid" id="cal-days"></div>
+    </div>
   </div>
   <button class="nav-btn" id="nav-next" onclick="navNext()">&#8250;</button>
 </div>
@@ -1128,8 +1160,52 @@ function currentPeriodValue() {
   return '';
 }
 
+// ── 月曆 popup ────────────────────────────────────────────
+let calY, calM;
+function openCal() {
+  calY = anchor.getFullYear(); calM = anchor.getMonth();
+  renderCal();
+  document.getElementById('cal-popup').classList.add('show');
+  setTimeout(() => document.addEventListener('click', calOutside), 10);
+}
+function calOutside(e) {
+  if (!document.getElementById('cal-popup').contains(e.target)) closeCal();
+}
+function closeCal() {
+  document.getElementById('cal-popup').classList.remove('show');
+  document.removeEventListener('click', calOutside);
+}
+function calNav(dir) {
+  calM += dir;
+  if (calM < 0) { calM = 11; calY--; }
+  if (calM > 11) { calM = 0; calY++; }
+  renderCal();
+}
+function renderCal() {
+  document.getElementById('cal-title').textContent = `${calY}年${calM+1}月`;
+  const grid = document.getElementById('cal-days');
+  grid.innerHTML = '';
+  const firstDow = new Date(calY, calM, 1).getDay();
+  const dim      = new Date(calY, calM+1, 0).getDate();
+  const todayStr = dateStr(new Date());
+  const selStr   = dateStr(anchor);
+  for (let i = 0; i < firstDow; i++) {
+    const e = document.createElement('div'); e.className='cal-d empty'; grid.appendChild(e);
+  }
+  for (let d = 1; d <= dim; d++) {
+    const ds = `${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const has = !!(byDate[ds] && (byDate[ds].steps != null || byDate[ds].sleep != null));
+    const el  = document.createElement('div');
+    el.className = 'cal-d' + (has?' has':'') + (ds===selStr?' sel':'') + (ds===todayStr?' today':'');
+    el.innerHTML = d + (has?'<div class="cal-dot"></div>':'');
+    el.onclick = (ev) => { ev.stopPropagation(); anchor=new Date(ds+'T12:00:00'); closeCal(); setView('day'); };
+    grid.appendChild(el);
+  }
+}
+
 function startEditPeriod() {
   if (currentView === 'all') return;
+  if (currentView === 'day') { openCal(); return; }
   const lbl = document.getElementById('period-label');
   const inp = document.getElementById('period-input');
   const hint = document.getElementById('period-hint');
