@@ -718,16 +718,18 @@ function renderCharts() {
   const labels = chartData.map(r => r.label);
   const ptR    = chartData.length > 60 ? 0 : (chartData.length > 20 ? 2 : 4);
 
+  const isAll = (currentView === 'all');
+
   stepsChart = makeChart('stepsChart', labels,
     chartData.map(r => r.steps),
     '#30d158', '步數', null, '步數',
     v => v >= 10000 ? (v/10000).toFixed(1)+'萬' : v.toLocaleString(),
-    chartData, isMonthly);
+    chartData, isMonthly, isAll);
 
   sleepChart = makeChart('sleepChart', labels,
     chartData.map(r => r.sleep),
     '#5e8ef7', '睡眠評分', 100, '睡眠評分',
-    v => v, chartData, isMonthly);
+    v => v, chartData, isMonthly, isAll);
 }
 
 // ── 日期格式化工具 ────────────────────────────────────────
@@ -783,7 +785,7 @@ function makeHLinePlugin(tickFmt) {
   };
 }
 
-function makeChart(id, labels, vals, color, label, yMax, tipLabel, tickFmt, rawData, isMonthly) {
+function makeChart(id, labels, vals, color, label, yMax, tipLabel, tickFmt, rawData, isMonthly, isAll) {
   const ctx = document.getElementById(id).getContext('2d');
   const ptR = vals.length > 60 ? 0 : vals.length > 20 ? 2 : 4;
 
@@ -844,9 +846,18 @@ function makeChart(id, labels, vals, color, label, yMax, tipLabel, tickFmt, rawD
           grid: { color:'#222' },
           ticks: {
             color:'#555',
-            maxTicksLimit: labels.length <= 12 ? labels.length : 10,
+            autoSkip: !isAll,
+            maxTicksLimit: isAll ? 999 : (labels.length <= 12 ? labels.length : 10),
             font:{size:11},
-            callback: (val, idx) => fmtTick(labels[idx] || '')
+            callback: (val, idx) => {
+              const lbl = labels[idx] || '';
+              if (isAll && lbl.length === 7) {
+                const mi = parseInt(lbl.slice(5));
+                // 全部視圖：只顯示每年 1 月，標籤為年份
+                return mi === 1 ? lbl.slice(0,4) + '年' : null;
+              }
+              return fmtTick(lbl);
+            }
           }
         },
         y: {
