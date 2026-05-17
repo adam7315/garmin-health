@@ -820,6 +820,14 @@ function makeHLinePlugin(tickFmt) {
 function makeChart(id, labels, vals, color, label, yMax, tipLabel, tickFmt, rawData, isMonthly, isAll) {
   const ctx = document.getElementById(id).getContext('2d');
   const ptR = vals.length > 60 ? 0 : vals.length > 20 ? 2 : 4;
+  // Pre-compute first index of each year (for isAll year labels)
+  const yearFirst = {};
+  labels.forEach((lbl, i) => {
+    if (lbl && lbl.length === 7) {
+      const y = lbl.slice(0, 4);
+      if (!(y in yearFirst)) yearFirst[y] = i;
+    }
+  });
 
   const gradient = ctx.createLinearGradient(0, 0, 0, 200);
   gradient.addColorStop(0, color + '44');
@@ -884,9 +892,9 @@ function makeChart(id, labels, vals, color, label, yMax, tipLabel, tickFmt, rawD
             callback: (val, idx) => {
               const lbl = labels[idx] || '';
               if (isAll && lbl.length === 7) {
-                const mi = parseInt(lbl.slice(5));
-                // 全部視圖：只顯示每年 1 月，標籤為年份
-                return mi === 1 ? lbl.slice(0,4) + '年' : null;
+                const y = lbl.slice(0, 4);
+                // 全部視圖：每年第一筆資料點顯示年份標籤
+                return yearFirst[y] === idx ? y + '年' : null;
               }
               return fmtTick(lbl);
             }
