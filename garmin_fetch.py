@@ -5,7 +5,8 @@ Usage: python garmin_fetch.py [MFA_CODE]
 import json
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from garminconnect import Garmin
 
 EMAIL      = os.environ.get("GARMIN_EMAIL",      "adam7315@gmail.com")
@@ -117,7 +118,7 @@ def fetch_data():
         current += timedelta(days=1)
 
     cache = {
-        "fetched_at": today.isoformat(),
+        "fetched_at": datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M"),
         "steps": steps_data,
         "sleep": sleep_data,
         "hr_cal": hr_cal_data,
