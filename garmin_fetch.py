@@ -65,15 +65,33 @@ def fetch_data():
     start = today - timedelta(days=FETCH_DAYS)
     print(f"Fetching {start} → {today} ({FETCH_DAYS} days)...")
 
-    # ── Steps ────────────────────────────────────────────────
-    current = start
+    # ── Steps (bulk daily totals) ─────────────────────────────
+    print(f"Fetching daily step totals {start} → {today}...")
+    try:
+        bulk = client.get_daily_steps(start.isoformat(), today.isoformat())
+        if isinstance(bulk, list):
+            for r in bulk:
+                ds = r.get("calendarDate") or r.get("startGMT", "")[:10]
+                s  = r.get("totalSteps") or r.get("steps")
+                if ds:
+                    steps_db[ds] = {"calendarDate": ds, "totalSteps": int(s) if s else 0}
+            print(f"  bulk: {len(bulk)} records")
+    except Exception as e:
+        print(f"  bulk steps failed ({e}), falling back to per-day...")
+
+    # ── Steps hourly breakdown (recent 90 days only) ──────────
+    hourly_start = today - timedelta(days=90)
+    current = hourly_start
     while current <= today:
         date_str = current.strftime("%Y-%m-%d")
         try:
             daily = client.get_steps_data(date_str)
             if isinstance(daily, list):
+                # Update totalSteps if bulk missed this date
                 total = sum(s.get("steps", 0) for s in daily)
-                steps_db[date_str] = {"calendarDate": date_str, "totalSteps": total}
+                if total > 0:
+                    steps_db[date_str] = {"calendarDate": date_str, "totalSteps": total}
+                # Hourly breakdown
                 hourly = [0] * 24
                 for iv in daily:
                     gmt = iv.get("startGMT", "")
@@ -86,13 +104,8 @@ def fetch_data():
                             pass
                 if any(v > 0 for v in hourly):
                     hourly_db[date_str] = hourly
-            else:
-                if date_str not in steps_db:
-                    steps_db[date_str] = {"calendarDate": date_str, "totalSteps": 0}
         except Exception as e:
-            print(f"  steps {date_str}: {e}")
-            if date_str not in steps_db:
-                steps_db[date_str] = {"calendarDate": date_str, "totalSteps": None}
+            print(f"  steps hourly {date_str}: {e}")
         current += timedelta(days=1)
 
     # ── Sleep ────────────────────────────────────────────────
