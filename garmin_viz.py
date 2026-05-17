@@ -1205,7 +1205,12 @@ setView('month');
   window.triggerUpdate=async function(){
     const btn=document.getElementById('upd-btn');
     const sts=document.getElementById('upd-sts');
-    const tok=getToken(); if(!tok) return;
+    let tok=getToken();
+    if(!tok){
+      tok=prompt('請輸入 GitHub Personal Access Token\n（需有 workflow 寫入權限，建議 fine-grained PAT）：');
+      if(!tok){sts.textContent='已取消';return;}
+      localStorage.setItem(KEY,tok);
+    }
     btn.disabled=true; btn.textContent='送出中...'; sts.textContent='';
     try{
       const r=await fetch(
@@ -1244,6 +1249,8 @@ setView('month');
 </script>
 </body>
 </html>"""
+
+HTML = HTML.replace('{fetched_at}', fetched_at or '（未知）')
 
 with open(OUTPUT, "w", encoding="utf-8") as f:
     f.write(HTML)
