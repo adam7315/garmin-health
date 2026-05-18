@@ -1,14 +1,14 @@
-name: Update Garmin Dashboard
+﻿name: Update Garmin Dashboard
 
 on:
   workflow_dispatch:
     inputs:
       fetch_days:
-        description: '回填天數（預設 60，首次全量請填 1825）'
+        description: '?‵憭拇嚗?閮?60嚗?甈∪??憛?1825嚗?
         required: false
         default: '60'
   schedule:
-    - cron: '0 0 * * *'   # UTC 00:00 = Taiwan 08:00
+    - cron: '0 18 * * *'   # UTC 18:00 = Taiwan 02:00 (next day) — 5.5h buffer ensures by Taiwan 08:00
 
 jobs:
   update:
