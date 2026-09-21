@@ -60,6 +60,15 @@ def login():
 def fetch_data():
     steps_db, sleep_db, hr_cal_db, hourly_db = load_existing()
     client = login()
+    # 印手錶最後一次同步到 Garmin Connect 的時間（資料沒更新時先看這一行：沒同步就抓不到）
+    try:
+        import datetime as _dt
+        _dev = client.get_device_last_used()
+        _ts = _dev.get("lastUsedDeviceUploadTime")
+        _when = _dt.datetime.utcfromtimestamp(_ts / 1000).strftime("%Y-%m-%d %H:%M UTC") if _ts else "unknown"
+        print(f"手錶最後同步：{_dev.get('lastUsedDeviceName')} @ {_when}")
+    except Exception as _e:
+        print(f"手錶最後同步：查不到（{_e}）")
 
     today = date.today()
     start = today - timedelta(days=FETCH_DAYS)
